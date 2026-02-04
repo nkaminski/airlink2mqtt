@@ -1,0 +1,41 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "airlink2mqtt"
+version = "0.1.0"
+description = "An asyncio Python tool for bridging SMS traffic between Sierra Wireless Airlink modems and an MQTT broker."
+authors = [
+  "Nash Kaminski <nashkaminski@kaminski.io>",
+]
+readme = "README.md"
+license = "MIT"
+keywords = ["sms", "sierra", "airlink", "asyncio", "modem", "semtech", "mqtt", "bridge"]
+homepage = "https://github.com/nkaminski/airlink2mqtt"
+repository = "https://github.com/nkaminski/airlink2mqtt"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Telephony",
+    "Topic :: System :: Networking",
+]
+packages = [{include = "airlink2mqtt"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<4.0"
+asyncclick = "^8.2.2.2"
+PyYAML = "^6.0"
+aiomqtt = "^1.0.0"
+aioairlinksms = {git = "https://github.com/nkaminski/aioairlinksms", rev = "0.2.2"}
+
+[tool.poetry.scripts]
+airlink2mqtt = "airlink2mqtt.cli:main"
