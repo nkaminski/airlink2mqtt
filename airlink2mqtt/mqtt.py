@@ -10,6 +10,8 @@ from aioairlinksms.exceptions import (
 )
 from aioairlinksms.udp import AirlinkSMSMessage, AirlinkSMSUDPServerProtocol
 
+from .matcher import Matcher
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,6 +26,7 @@ class AirlinkMqttClient:
         username: Optional[str],
         password: Optional[str],
         reconnect_interval: int = 5,
+        matcher: Optional[Matcher] = None,
     ) -> None:
         self.hostname = hostname
         self.port = port
@@ -33,6 +36,8 @@ class AirlinkMqttClient:
         self.reconnect_interval = reconnect_interval
         self.tx_topic = f"{self.mqtt_topic_prefix}/message/send"
         self.rx_topic = f"{self.mqtt_topic_prefix}/message/receive"
+        self.matcher = matcher
+
 
     async def _airlink_to_mqtt(
         self,
@@ -43,7 +48,18 @@ class AirlinkMqttClient:
         async for message in al_client.messages:
             try:
                 logger.debug("Received message from AirLink: %s", message)
+                if self.matcher:
+                    match_result = self.matcher.match(message)
+                    if match_result:
+                        logger.debug(f"Message matched condition: {match_result.condition.name}")
+                        match_payload = json.dumps(match_result.serialize())
+                        await mq_client.publish(
+                            topic=f"{self.rx_topic}/match/{match_result.condition.name}",
+                            payload=match_payload,
+                        )
+                        continue
                 payload = json.dumps(message.as_dict())
+                logger.debug(f"Publishing verbatim message to topic {self.rx_topic}")
                 await mq_client.publish(topic=self.rx_topic, payload=payload)
             except AirlinkSMSMessageDecodeError as e:
                 logger.error(
@@ -62,7 +78,7 @@ class AirlinkMqttClient:
                 try:
                     if not isinstance(message.payload, bytes):
                         raise ValueError("Received invalid MQTT message payload type")
-                    if not message.topic == self.tx_topic:
+                    if str(message.topic) != self.tx_topic:
                         logger.warning(
                             f"Received message on unexpected topic: {message.topic}"
                         )

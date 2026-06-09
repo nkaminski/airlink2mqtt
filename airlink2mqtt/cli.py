@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from typing import Optional
 
 import aioairlinksms.udp
@@ -7,6 +8,7 @@ import asyncclick as click
 import yaml
 
 from .const import MQTT_DEFAULT_HOST, MQTT_DEFAULT_PORT, MQTT_DEFAULT_TOPIC_PREFIX
+from .matcher import MatchCondition, Matcher
 from .mqtt import AirlinkMqttClient
 
 logger = logging.getLogger("airlink2mqtt")
@@ -16,14 +18,15 @@ def process_config(
     ctx: click.Context, param: click.Option, value: Optional[str]
 ) -> Optional[str]:
     if value and os.path.exists(value):
-        with open(value, "r") as f:
-            config = yaml.safe_load(f)
-            # Click uses the option name (not the --opt-name) as the key
-            # so we need to convert kebab-case to snake_case.
-            if config:
-                config = {k.replace("-", "_"): v for k, v in config.items()}
-                ctx.default_map = ctx.default_map or {}
-                ctx.default_map.update(config)
+        try:
+            with open(value, "r") as f:
+                config = yaml.safe_load(f) or {}
+            if not isinstance(config, dict):
+                raise ValueError("Config file must contain a dictionary.")
+            ctx.default_map = ctx.default_map or {}
+            ctx.default_map.update(config)
+        except (yaml.YAMLError, ValueError) as e:
+            raise click.BadParameter(f"Invalid config file: {e}")
     return value
 
 
@@ -35,6 +38,12 @@ def process_config(
     callback=process_config,
     is_eager=True,
     help="Path to a YAML configuration file.",
+)
+@click.option(
+    "-m",
+    "--match-cond-file",
+    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
+    help="Path to a YAML file containing match conditions.",
 )
 @click.option(
     "-h",
@@ -73,6 +82,7 @@ def process_config(
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging.")
 async def main(
     config: Optional[str],
+    match_cond_file: Optional[str],
     mqtt_host: str,
     mqtt_user: Optional[str],
     mqtt_password: Optional[str],
@@ -117,12 +127,26 @@ async def main(
     logger.debug(f"AirLink Modem Listen Port: {airlink_listen_port}")
     logger.debug(f"AirLink Modem Bind Address: {airlink_bind_addr}")
 
+    matcher = None
+    if match_cond_file:
+        try:
+            with open(match_cond_file, "r") as f:
+                config = yaml.safe_load(f) or {}
+            if not isinstance(config, dict):
+                raise ValueError("Match conditions file must contain a dictionary of name: regex.")
+            conditions = [MatchCondition(n, r) for n, r in config.items()]
+            matcher = Matcher(conditions)
+            logger.info(f"Loaded {len(conditions)} match conditions from {match_cond_file}")
+        except (yaml.YAMLError, ValueError, re.error) as e:
+            raise click.BadParameter(f"Invalid match conditions file: {e}")
+    
     mqtt_client = AirlinkMqttClient(
         hostname=mqtt_host,
         port=mqtt_port,
         username=mqtt_user,
         password=mqtt_password,
         mqtt_topic_prefix=mqtt_topic_prefix,
+        matcher=matcher,
     )
     async with aioairlinksms.udp.create_message_handler(
         remote_addr=airlink_host,

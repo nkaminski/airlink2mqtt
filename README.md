@@ -29,6 +29,7 @@ airlink2mqtt [OPTIONS]
 ### Options
 
 - `-c`, `--config TEXT`: Path to a YAML configuration file.
+- `-m`, `--match-cond-file TEXT`: Path to a YAML file containing match conditions.
 - `-h`, `--mqtt-host TEXT`: MQTT broker host. (Default: `localhost`)
 - `-u`, `--mqtt-user TEXT`: MQTT username.
 - `-p`, `--mqtt-password TEXT`: MQTT password.
@@ -44,12 +45,13 @@ airlink2mqtt [OPTIONS]
 All options can also be provided in a YAML configuration file. For example:
 
 ```yaml
-mqtt-host: 192.168.1.100
-mqtt-user: myuser
-mqtt-password: mypassword
-airlink-host: 192.168.43.1
-airlink-port: 8000
-airlink-listen-port: 8001
+mqtt_host: 192.168.1.100
+mqtt_user: myuser
+mqtt_password: mypassword
+airlink_host: 192.168.43.1
+airlink_port: 8000
+airlink_listen_port: 8001
+match_cond_file: /path/to/match_conditions.yaml
 ```
 
 ## Example
@@ -57,7 +59,7 @@ airlink-listen-port: 8001
 To connect to an Airlink modem at `192.168.43.1` (that is listening on port 8000 and replying on port 8001) and an MQTT broker at `192.168.1.100`:
 
 ```bash
-airlink2mqtt --airlink-host 192.168.43.1 --airlink-port 8000 --airlink-listen-port 8001 --mqtt-host 192.168.1.100 --verbose
+airlink2mqtt --airlink-host 192.168.43.1 --airlink-port 8000 --airlink-listen-port 8000 --mqtt-host 192.168.1.100 --verbose
 ```
 
 ## MQTT Topics
@@ -72,6 +74,64 @@ The JSON payload should have the following format:
   "phone_number": "+15551234567",
   "message": "Hello from MQTT!"
 }
+```
+
+## Match Conditions
+
+You can conditionally match and route incoming SMS messages to specific MQTT topics using Python regular expressions.
+
+To enable matching, provide a path to a YAML file containing match conditions using the `-m` / `--match-cond-file` option or through the configuration file.
+
+### Match Conditions File Format
+
+The match conditions file is a YAML dictionary where keys are the condition names and values are regular expression patterns. You can use named capture groups (e.g. `(?P<group_name>pattern)`) to extract specific fields from the message.
+
+Example `match_conditions.yaml`:
+
+```yaml
+system_alert: "^ALRT\\s+(?P<message>.*)"
+```
+
+### Routing and Payload
+
+When a received SMS matches a condition:
+1. It is routed to `<mqtt-topic-prefix>/message/receive/match/<condition-name>` instead of the default `<mqtt-topic-prefix>/message/receive` topic.
+2. The payload is published as a JSON object containing the matched condition name and any extracted named capture groups.
+
+For example, if the SMS message is `ALRT Disk Full`, it matches the `system_alert` pattern and publishes the following JSON to `airlink/message/receive/match/system_alert`:
+
+```json
+{
+  "name": "system_alert",
+  "named_groups": {
+    "message": "Disk Full"
+  }
+}
+```
+
+If no condition matches the message, it is published to the default topic (`<mqtt-topic-prefix>/message/receive`) as a raw message.
+
+## Container Support
+
+You can build and run this tool as a container using the provided `Containerfile`.
+
+### Build the Image
+
+To build the container image using Podman:
+
+```bash
+podman build -t airlink2mqtt .
+```
+
+### Run the Container
+
+To run the container, pass your configuration file (or command-line arguments) and mount the necessary files:
+
+```bash
+podman run --rm -it \
+  -v $(pwd)/config.yaml:/app/config.yaml:Z \
+  -v $(pwd)/match_conditions.yaml:/app/match_conditions.yaml:Z \
+  airlink2mqtt --config /app/config.yaml --match-cond-file /app/match_conditions.yaml
 ```
 
 ## License
